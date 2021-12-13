@@ -4,7 +4,7 @@ logs/
 docker/volumes/
 recording/
 recording
-/*.env
+#/*.env
 /*.bak
 /*.json
 DONE

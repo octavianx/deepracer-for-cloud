@@ -4,3 +4,7 @@ services:
   robomaker:
     volumes:
       - "${DR_DIR}/tmp/comms.${DR_RUN_ID}:/mnt/comms"
+    ports:
+      - target: 5900 
+        published: 5900
+        mode: host

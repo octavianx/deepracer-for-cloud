@@ -7,10 +7,25 @@ function ctrl_c() {
         exit 1
 }
 
+function func_check_image_exists() {
+    docker image inspect $1:$2 >/dev/null 2>&1
+    if [ $? -eq 0 ]
+    then
+        # image already exists on localhost
+        echo "$1:$2 already exists on localhost, bypassing the pull processing"
+    else
+        # pull the image
+        docker pull $1:$2
+    fi
+}
+
+
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 INSTALL_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." >/dev/null 2>&1 && pwd )"
 
-OPT_ARCH="gpu"
+echo "install dir is  $INSTALL_DIR"
+
+OPT_ARCH="cpu"
 OPT_CLOUD=""
 
 while getopts ":m:c:a:" opt; do
@@ -28,6 +43,7 @@ esac
 done
 
 if [[ -z "$OPT_CLOUD" ]]; then
+    # using /var/run/cloud-init/instance-data.json  to determin whether it is on cloud
     source $SCRIPT_DIR/detect.sh
     OPT_CLOUD=$CLOUD_NAME
     echo "Detected cloud type to be $CLOUD_NAME"
@@ -48,6 +64,7 @@ if [[ -f /proc/cpuinfo ]] && [[ "$(cat /proc/cpuinfo | grep GenuineIntel | wc -l
 elif [[ "$(type sysctl 2> /dev/null)" ]] && [[ "$(sysctl -n machdep.cpu.vendor)" == "GenuineIntel" ]]; then
     CPU_INTEL="true"
 fi
+echo  "cpu level : $CPU_LEVEL;   cpu intel : $CPU_INTEL"
 
 # Check GPU
 if [[ "${OPT_ARCH}" == "gpu" ]]
@@ -66,13 +83,25 @@ cd $INSTALL_DIR
 # create directory structure for docker volumes
 mkdir -p $INSTALL_DIR/data $INSTALL_DIR/data/minio $INSTALL_DIR/data/minio/bucket 
 mkdir -p $INSTALL_DIR/data/logs $INSTALL_DIR/data/analysis $INSTALL_DIR/tmp
+echo "OPT_CLOUD is $OPT_CLOUD, going to creat sagemake dir"
 sudo mkdir -p /tmp/sagemaker
 sudo chmod -R g+w /tmp/sagemaker
 
 # create symlink to current user's home .aws directory 
 # NOTE: AWS cli must be installed for this to work
 # https://docs.aws.amazon.com/cli/latest/userguide/install-linux-al2017.html
+
+# hence awscli installation is a must, should it be probed to confirm the instllation ?
+type aws 2> /dev/null
+if [ $? -ne 0  ];then 
+    echo "aws cli may havenot been installed , pls install awscli before continue"
+    exit 1
+fi
+
+echo "echo aws cli is confirmed,press anykey to continue"
+read
 mkdir -p $(eval echo "~${USER}")/.aws $INSTALL_DIR/docker/volumes/
+## reinhard:  这里有些迷惑了，什么意思.... 
 ln -sf $(eval echo "~${USER}")/.aws  $INSTALL_DIR/docker/volumes/
 
 # copy rewardfunctions
@@ -83,6 +112,9 @@ cp $INSTALL_DIR/defaults/reward_function.py $INSTALL_DIR/custom_files/
 
 cp $INSTALL_DIR/defaults/template-system.env $INSTALL_DIR/system.env
 cp $INSTALL_DIR/defaults/template-run.env $INSTALL_DIR/run.env
+
+echo "OPT_CLOUD is $OPT_CLOUD"
+
 if [[ "${OPT_CLOUD}" == "aws" ]]; then
     AWS_EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
     AWS_REGION="`echo \"$AWS_EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
@@ -148,16 +180,24 @@ else
 fi
 sed -i "s/<SAGE_TAG>/$SAGEMAKER_VERSION/g" $INSTALL_DIR/system.env
 
-docker pull awsdeepracercommunity/deepracer-rlcoach:$COACH_VERSION
-docker pull awsdeepracercommunity/deepracer-robomaker:$ROBOMAKER_VERSION
-docker pull awsdeepracercommunity/deepracer-sagemaker:$SAGEMAKER_VERSION
+echo "going to pull docker images: $COACH_VERSION / $ROBOMAKER_VERSION / $SAGEMAKER_VERSION"
+#docker pull awsdeepracercommunity/deepracer-rlcoach:$COACH_VERSION
+func_check_image_exists  awsdeepracercommunity/deepracer-rlcoach  $COACH_VERSION
+#docker pull awsdeepracercommunity/deepracer-robomaker:$ROBOMAKER_VERSION
+func_check_image_exists  awsdeepracercommunity/deepracer-robomaker $ROBOMAKER_VERSION
+#docker pull awsdeepracercommunity/deepracer-sagemaker:$SAGEMAKER_VERSION
+func_check_image_exists  awsdeepracercommunity/deepracer-sagemaker $SAGEMAKER_VERSION
+
+read
 
 # create the network sagemaker-local if it doesn't exit
 SAGEMAKER_NW='sagemaker-local'
 docker swarm init
+echo "docker swarm initialized"
 SWARM_NODE=$(docker node inspect self | jq .[0].ID -r)
 docker node update --label-add Sagemaker=true $SWARM_NODE
 docker node update --label-add Robomaker=true $SWARM_NODE
+echo "querying docker nod network status"
 docker network ls | grep -q $SAGEMAKER_NW
 if [ $? -ne 0 ]
 then

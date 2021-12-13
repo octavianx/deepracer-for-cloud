@@ -88,7 +88,7 @@ STACK_NAME="deepracer-$DR_RUN_ID"
 
 export DR_CURRENT_PARAMS_FILE=${DR_LOCAL_S3_TRAINING_PARAMS_FILE}
 
-WORKER_CONFIG=$(python3 $DR_DIR/scripts/training/prepare-config.py)
+WORKER_CONFIG=$(python $DR_DIR/scripts/training/prepare-config.py)
 
 if [ "$DR_WORKERS" -gt 1 ]; then
   echo "Starting $DR_WORKERS workers"
@@ -185,7 +185,7 @@ if [[ "${OPT_DISPLAY,,}" == "all" && -n "${DISPLAY}" && "${DR_HOST_X,,}" == "tru
   fi
 elif [[ "${OPT_DISPLAY,,}" == "robomaker" ]]; then
   dr-logs-robomaker -w 15 -n $OPT_ROBOMAKER
-elif [[ "${OPT_DISPLAY,,}" == "sagemaker" ]]; then
+elif [[ "${OPT_DISPLAY}" == "sagemaker" ]]; then
   dr-logs-sagemaker -w 15
 fi
 
